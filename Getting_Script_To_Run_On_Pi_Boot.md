@@ -38,11 +38,11 @@
         - If you specify Restart=no, then you don't have to have this field
 
 4. Hit Ctrl+O and then Enter to save the file. Then hit Crtl+X and then Enter to exit the file.
-5. To tell systemd to recognize our service, enter the following in the terminal:
+5. To tell systemd to recognize our service, enter the following in the terminal: <br>
     ```sudo systemctl daemon-reload```
     - Note: You will need to enter this command every time you change the .service file.
-6. To tell systemd that we want our service to start on boot, enter the following in the terminal: 
+6. To tell systemd that we want our service to start on boot, enter the following in the terminal: <br>
     ```sudo systemctl enable /etc/systemd/weedscout.service```
     - Adjust the name 'weedscout' based on whatever you called your .service file in step #2.
-7. To test your script runs on boot, issue the following command to restart your Pi:
+7. To test your script runs on boot, issue the following command to restart your Pi: <br>
     ```sudo reboot```
