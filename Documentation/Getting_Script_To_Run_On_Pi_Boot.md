@@ -46,3 +46,11 @@
     - Adjust the name 'weedscout' based on whatever you called your .service file in step #2.
 7. To test your script runs on boot, issue the following command to restart your Pi: <br>
     ```sudo reboot```
+
+
+Other Notes:
+- If you want to check the status of your service, run this command:
+    ```sudo systemctl status your_service_name```
+- If you want to stop your service for your current session, run this command:
+    ```sudo systemctl stop your_service_name```
+    - The service will still run when you startup again
