@@ -276,6 +276,8 @@ if __name__ == "__main__":
     # - Serial: '/dev/ttyACM0' or '/dev/ttyUSB0'
     # - TCP: 'tcp:127.0.0.1:5760'
     gps_handler = MAVLinkGPSHandler('udp:0.0.0.0:14550')
+    gps_handler.wait_for_arm()
+
     gps_handler.start()
     
     # # Start GPS data collection
