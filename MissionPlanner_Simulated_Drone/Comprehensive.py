@@ -248,60 +248,8 @@ def app_callback(pad, info, user_data):
     
     # Push to queue (non-blocking)
     if detections:
-        user_data.processor.enqueue(frame_number, detections, frame)
+        user_data.detection_processor.enqueue(frame_number, detections, frame)
     
-
-
-    #     if label == "person":
-    #         # Get track ID
-    #         track_id = 0
-    #         track = detection.get_objects_typed(hailo.HAILO_UNIQUE_ID)
-    #         if len(track) == 1:
-    #             track_id = track[0].get_id()
-            
-    #         detection_info = {
-    #             'id': track_id,
-    #             'label': label,
-    #             'confidence': confidence,
-    #             'bbox': (bbox.xmin(), bbox.ymin(), bbox.width(), bbox.height())
-    #         }
-            
-    #         # Log detection with GPS data
-    #         log_entry = user_data.log_detection_with_gps(detection_info)
-            
-    #         string_to_print += (
-    #             f"Detection: ID: {track_id} Label: {label} Confidence: {confidence:.2f}\n"
-    #             f"  GPS: Lat={gps_data['lat']:.7f}, Lon={gps_data['lon']:.7f}, "
-    #             f"Alt={gps_data['alt']:.1f}m, Rel Alt={gps_data['relative_alt']:.1f}m\n"
-    #             f"  Heading={gps_data['heading']:.1f}°, Speed={gps_data['ground_speed']:.1f}m/s, "
-    #             f"Sats={gps_data['satellites_visible']}, Fix={fix_type_str}\n"
-    #         )
-    #         detection_count += 1
-    
-    # if user_data.use_frame:
-    #     # Display detection count
-    #     cv2.putText(frame, f"Detections: {detection_count}", (10, 30), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        
-    #     # Display GPS info
-    #     gps_text = f"GPS: {gps_data['lat']:.6f}, {gps_data['lon']:.6f}"
-    #     cv2.putText(frame, gps_text, (10, 70), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-        
-    #     alt_text = f"Alt: {gps_data['relative_alt']:.1f}m | Hdg: {gps_data['heading']:.0f}°"
-    #     cv2.putText(frame, alt_text, (10, 100), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-        
-    #     fix_text = f"Fix: {fix_type_str} | Sats: {gps_data['satellites_visible']}"
-    #     cv2.putText(frame, fix_text, (10, 130), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-        
-    #     # Convert the frame to BGR
-    #     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-    #     user_data.set_frame(frame)
-    
-    # print(string_to_print)
-
     return Gst.PadProbeReturn.OK
 
 
@@ -337,6 +285,13 @@ if __name__ == "__main__":
 
 
 """
+TODOS
+- Adjust callback to only enqueue frame if detected object in multiple frames? How will this work if multiple objects in screen?
+- Save images of detections with GPS data overlayed? 
+    - Math of where pictures are in frame?
+- Test with real drone
+
+
 Things to consider
 - Do we want to trigger the code on drone arm? Does arm disengage automatically sometimes?
     - Maybe just once its mission starts?
