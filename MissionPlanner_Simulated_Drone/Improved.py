@@ -111,7 +111,7 @@ class MAVLinkGPSHandler:
                 # Get GLOBAL_POSITION_INT for relative altitude and heading
 
                 # Do I need to use GPS_RTK
-                msg = self.master.recv_match(type='GLOBAL_POSITION_INT', blocking=False)
+                msg = self.master.recv_match(type='GLOBAL_POSITION_INT', blocking=True)
                 if msg:
                     with self.lock:
                         self.gps_data['timestamp'] = time.time()
