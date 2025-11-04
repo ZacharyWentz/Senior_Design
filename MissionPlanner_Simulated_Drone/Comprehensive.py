@@ -1,19 +1,33 @@
 # region imports
-# Standard library imports
 import time
 from threading import Thread, Lock
-# Third-party imports
+from queue import Queue, Full
+from dataclasses import dataclass
+import json
+
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 import cv2
 from pymavlink import mavutil
-# Local application-specific imports
+
 import hailo
 from hailo_apps.hailo_app_python.core.common.buffer_utils import get_caps_from_pad, get_numpy_from_buffer
 from hailo_apps.hailo_app_python.core.gstreamer.gstreamer_app import app_callback_class
 from hailo_apps.hailo_app_python.apps.detection.detection_pipeline import GStreamerDetectionApp
 # endregion imports
+
+# -----------------------------------------------------------------------------------------------
+# Data Classes
+# -----------------------------------------------------------------------------------------------
+@dataclass
+class DetectionEvent:
+    frame_number: int
+    timestamp: float
+    detections: list
+    gps_data: dict
+    frame: any = None
+
 
 # -----------------------------------------------------------------------------------------------
 # MAVLink GPS Handler
@@ -36,10 +50,7 @@ class MAVLinkGPSHandler:
             'vx': 0.0,
             'vy': 0.0,
             'vz': 0.0,
-            'heading': 0.0,
-            # 'satellites_visible': 0,
-            # 'fix_type': 0,
-            # 'timestamp': 0
+            'heading': 0.0
         }
         self.lock = Lock()
         self.running = False
@@ -53,14 +64,7 @@ class MAVLinkGPSHandler:
             self.master.wait_heartbeat()
             print("Connected! Heartbeat received.")
 
-            # Request data streams
-            # self.master.mav.request_data_stream_send(
-            #     self.master.target_system,
-            #     self.master.target_component,
-            #     mavutil.mavlink.MAV_DATA_STREAM_ALL,
-            #     4,  # 4 Hz update rate
-            #     1   # Start streaming
-            # )
+            # Can request specific GPS data rates here if needed
         except Exception as e:
             print(f"Failed to connect to ArduPilot: {e}")
 
@@ -99,17 +103,6 @@ class MAVLinkGPSHandler:
         """Background thread to continuously update GPS data"""
         while self.running:
             try:
-                # Get GPS_RAW_INT message
-                # msg = self.master.recv_match(type='GPS_RAW_INT', blocking=True, timeout=1)
-                # if msg:
-                #     with self.lock:
-                #         self.gps_data['ground_speed'] = msg.vel / 100.0  # cm/s to m/s
-                #         self.gps_data['satellites_visible'] = msg.satellites_visible
-                #         self.gps_data['fix_type'] = msg.fix_type
-                #         self.gps_data['timestamp'] = time.time()
-                
-                # Get GLOBAL_POSITION_INT for relative altitude and heading
-
                 msg = self.master.recv_match(type='GLOBAL_POSITION_INT', blocking=True)
                 if msg:
                     with self.lock:
@@ -132,56 +125,87 @@ class MAVLinkGPSHandler:
         """Get current GPS data (thread-safe)"""
         with self.lock:
             return self.gps_data.copy()
-    
-    # def get_fix_type_string(self, fix_type):
-    #     """Convert fix type to readable string"""
-    #     fix_types = {
-    #         0: "No GPS",
-    #         1: "No Fix",
-    #         2: "2D Fix",
-    #         3: "3D Fix",
-    #         4: "DGPS",
-    #         5: "RTK Float",
-    #         6: "RTK Fixed"
-    #     }
-    #     return fix_types.get(fix_type, "Unknown")
+
 
 # -----------------------------------------------------------------------------------------------
-# User-defined class to be used in the callback function
+# Detection Processor
+# -----------------------------------------------------------------------------------------------
+class DetectionProcessor:
+    def __init__(self, gps_handler, max_queue_size=100):
+        self.gps_handler = gps_handler
+        self.queue = Queue(maxsize=max_queue_size)
+        self.running = False
+        self.thread = None
+        self.detection_log = []
+        self.stats = {'processed': 0, 'dropped': 0}
+        
+    def start(self):
+        self.running = True
+        self.thread = Thread(target=self._process_loop, daemon=True)
+        self.thread.start()
+    
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=5)
+    
+    def enqueue(self, frame_number, detections, frame=None):
+        """Called from GStreamer callback - must be non-blocking"""
+        try:
+            event = DetectionEvent(
+                frame_number=frame_number,
+                timestamp=time.time(),
+                detections=detections,
+                gps_data=self.gps_handler.get_gps_data(),
+                frame=frame.copy() if frame is not None else None
+            )
+            self.queue.put(event, block=False)
+        except Full:
+            self.stats['dropped'] += 1
+            print(f"Queue full. Dropped frame {frame_number}")
+    
+    def _process_loop(self):
+        while self.running:
+            try:
+                event = self.queue.get(timeout=1)
+                self._process_event(event)
+                self.stats['processed'] += 1
+                self.queue.task_done()
+            except:
+                pass
+    
+    def _process_event(self, event):
+        """Heavy processing happens here - not blocking the pipeline"""
+        log_entry = {
+            'frame': event.frame_number,
+            'timestamp': event.timestamp,
+            'detections': event.detections,
+            'gps': event.gps_data
+        }
+        self.detection_log.append(log_entry)
+        
+        # Print summary
+        print(f"Frame {event.frame_number}: {len(event.detections)} detections | "
+              f"GPS: {event.gps_data['lat']:.6f}, {event.gps_data['lon']:.6f} | "
+              f"Alt: {event.gps_data['relative_alt']:.1f}m")
+    
+    def save_log(self, filename='detection_log.json'):
+        with open(filename, 'w') as f:
+            json.dump({'stats': self.stats, 'detections': self.detection_log}, f, indent=2)
+        print(f"Saved {len(self.detection_log)} detections to {filename}")
+
+
+
+# -----------------------------------------------------------------------------------------------
+# Class to be used in the callback function
 # -----------------------------------------------------------------------------------------------
 class user_app_callback_class(app_callback_class):
-    def __init__(self, gps_handler):
+    def __init__(self, detection_processor):
         super().__init__()
-        self.gps_handler = gps_handler
-        self.detection_log = []  # Store detection events with GPS data
-        
-    def log_detection_with_gps(self, detection_info):
-        """Log detection with current GPS coordinates"""
-        gps_data = self.gps_handler.get_gps_data()
-        
-        log_entry = {
-            'frame': self.get_count(),
-            'timestamp': time.time(),
-            'detection': detection_info,
-            'gps': gps_data
-        }
-        
-        self.detection_log.append(log_entry)
-        return log_entry
-    
-    def save_log_to_file(self, filename='detection_log.txt'):
-        """Save detection log to file"""
-        with open(filename, 'w') as f:
-            for entry in self.detection_log:
-                f.write(f"Frame: {entry['frame']}\n")
-                f.write(f"Time: {time.ctime(entry['timestamp'])}\n")
-                f.write(f"Detection: {entry['detection']}\n")
-                f.write(f"GPS: Lat={entry['gps']['lat']:.7f}, Lon={entry['gps']['lon']:.7f}, ")
-                f.write(f"Alt={entry['gps']['alt']:.1f}m, Heading={entry['gps']['heading']:.1f}°\n")
-                f.write("-" * 80 + "\n")
+        self.detection_processor = detection_processor
 
 # -----------------------------------------------------------------------------------------------
-# User-defined callback function
+# Callback function
 # -----------------------------------------------------------------------------------------------
 def app_callback(pad, info, user_data):
     buffer = info.get_buffer()
@@ -189,32 +213,45 @@ def app_callback(pad, info, user_data):
         return Gst.PadProbeReturn.OK
     
     user_data.increment()
-    string_to_print = f"Frame count: {user_data.get_count()}\n"
-    
-    # Get GPS data
-    gps_data = user_data.gps_handler.get_gps_data()
-    fix_type_str = user_data.gps_handler.get_fix_type_string(gps_data['fix_type'])
-    
-    # Get the caps from the pad
+    frame_number = user_data.get_count()
+
+
     format, width, height = get_caps_from_pad(pad)
     
-    # Get video frame if needed
     frame = None
     if user_data.use_frame and format is not None and width is not None and height is not None:
         frame = get_numpy_from_buffer(buffer, format, width, height)
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
     
     # Get the detections from the buffer
     roi = hailo.get_roi_from_buffer(buffer)
-    detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
+    hailo_detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
     
     # Parse the detections
-    detection_count = 0
-    for detection in detections:
+    detections = []
+    for detection in hailo_detections:
         label = detection.get_label()
         bbox = detection.get_bbox()
         confidence = detection.get_confidence()
-        print(f"Label: {label}, Confidence: {confidence}")
+
+        track_id = 0
+        track = detection.get_objects_typed(hailo.HAILO_UNIQUE_ID)
+        if track:
+            track_id = track[0].get_id()
         
+        detections.append({
+            'id': track_id,
+            'label': label,
+            'confidence': confidence,
+            'bbox': (bbox.xmin(), bbox.ymin(), bbox.width(), bbox.height())
+        })
+    
+    # Push to queue (non-blocking)
+    if detections:
+        user_data.processor.enqueue(frame_number, detections, frame)
+    
+
+
     #     if label == "person":
     #         # Get track ID
     #         track_id = 0
@@ -263,8 +300,11 @@ def app_callback(pad, info, user_data):
     #     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
     #     user_data.set_frame(frame)
     
-    print(string_to_print)
+    # print(string_to_print)
+
     return Gst.PadProbeReturn.OK
+
+
 
 if __name__ == "__main__":
     # Initialize GPS handler
@@ -279,17 +319,19 @@ if __name__ == "__main__":
         print("Failed to start GPS handler. Exiting.")
         exit(1)
 
+    processor = DetectionProcessor(gps_handler)
+    processor.start()
+
 
     try:
-        # Create an instance of the user app callback class
         user_data = user_app_callback_class(gps_handler)
         app = GStreamerDetectionApp(app_callback, user_data)
         app.run()
     finally:
-        # Save detection log and stop GPS handler
-        user_data.save_log_to_file('detection_log.txt')
-        print(f"Saved {len(user_data.detection_log)} detection events to detection_log.txt")
+        processor.stop()
         gps_handler.stop()
+        processor.save_log('detection_log.json')
+        print(f"Stats: {processor.stats}")
 
 
 
