@@ -44,12 +44,24 @@ class MAVLinkGPSHandler:
         self.running = False
         self.thread = None
 
-        print(f"Connecting to ArduPilot on {self.connection_string}...")
-        self.master = mavutil.mavlink_connection(self.connection_string)
-        
-        print("Waiting for heartbeat...")
-        self.master.wait_heartbeat()
-        print("Connected! Heartbeat received.")
+        try:
+            print(f"Connecting to ArduPilot on {self.connection_string}...")
+            self.master = mavutil.mavlink_connection(self.connection_string)
+            
+            print("Waiting for heartbeat...")
+            self.master.wait_heartbeat()
+            print("Connected! Heartbeat received.")
+
+            # Request data streams
+            # self.master.mav.request_data_stream_send(
+            #     self.master.target_system,
+            #     self.master.target_component,
+            #     mavutil.mavlink.MAV_DATA_STREAM_ALL,
+            #     4,  # 4 Hz update rate
+            #     1   # Start streaming
+            # )
+        except Exception as e:
+            print(f"Failed to connect to ArduPilot: {e}")
 
 
     def wait_for_arm(self):
@@ -69,35 +81,12 @@ class MAVLinkGPSHandler:
 
         print("Drone is armed!")
 
-    def connect(self):
-        """Establish connection to ArduPilot"""
-        try:
-            print(f"Connecting to ArduPilot on {self.connection_string}...")
-            self.master = mavutil.mavlink_connection(self.connection_string)
-            self.master.wait_heartbeat()
-            print("Connected! Heartbeat received.")
-            
-            # Request data streams
-            self.master.mav.request_data_stream_send(
-                self.master.target_system,
-                self.master.target_component,
-                mavutil.mavlink.MAV_DATA_STREAM_ALL,
-                4,  # 4 Hz update rate
-                1   # Start streaming
-            )
-            return True
-        except Exception as e:
-            print(f"Failed to connect to ArduPilot: {e}")
-            return False
-    
     def start(self):
         """Start GPS data collection in background thread"""
-        if self.connect():
-            self.running = True
-            self.thread = Thread(target=self._update_gps_loop, daemon=True)
-            self.thread.start()
-            return True
-        return False
+        self.running = True
+        self.thread = Thread(target=self._update_gps_loop, daemon=True)
+        self.thread.start()
+        return True
     
     def stop(self):
         """Stop GPS data collection"""
@@ -110,16 +99,16 @@ class MAVLinkGPSHandler:
         while self.running:
             try:
                 # Get GPS_RAW_INT message
-                msg = self.master.recv_match(type='GPS_RAW_INT', blocking=True, timeout=1)
-                if msg:
-                    with self.lock:
-                        self.gps_data['lat'] = msg.lat / 1e7  # Convert to degrees
-                        self.gps_data['lon'] = msg.lon / 1e7
-                        self.gps_data['alt'] = msg.alt / 1000.0  # Convert to meters
-                        self.gps_data['ground_speed'] = msg.vel / 100.0  # cm/s to m/s
-                        self.gps_data['satellites_visible'] = msg.satellites_visible
-                        self.gps_data['fix_type'] = msg.fix_type
-                        self.gps_data['timestamp'] = time.time()
+                # msg = self.master.recv_match(type='GPS_RAW_INT', blocking=True, timeout=1)
+                # if msg:
+                #     with self.lock:
+                #         self.gps_data['lat'] = msg.lat / 1e7  # Convert to degrees
+                #         self.gps_data['lon'] = msg.lon / 1e7
+                #         self.gps_data['alt'] = msg.alt / 1000.0  # Convert to meters
+                #         self.gps_data['ground_speed'] = msg.vel / 100.0  # cm/s to m/s
+                #         self.gps_data['satellites_visible'] = msg.satellites_visible
+                #         self.gps_data['fix_type'] = msg.fix_type
+                #         self.gps_data['timestamp'] = time.time()
                 
                 # Get GLOBAL_POSITION_INT for relative altitude and heading
                 msg = self.master.recv_match(type='GLOBAL_POSITION_INT', blocking=False)
@@ -189,84 +178,84 @@ class user_app_callback_class(app_callback_class):
 # -----------------------------------------------------------------------------------------------
 def app_callback(pad, info, user_data):
     buffer = info.get_buffer()
-    if buffer is None:
-        return Gst.PadProbeReturn.OK
+    # if buffer is None:
+    #     return Gst.PadProbeReturn.OK
     
-    user_data.increment()
-    string_to_print = f"Frame count: {user_data.get_count()}\n"
+    # user_data.increment()
+    # string_to_print = f"Frame count: {user_data.get_count()}\n"
     
-    # Get GPS data
-    gps_data = user_data.gps_handler.get_gps_data()
-    fix_type_str = user_data.gps_handler.get_fix_type_string(gps_data['fix_type'])
+    # # Get GPS data
+    # gps_data = user_data.gps_handler.get_gps_data()
+    # fix_type_str = user_data.gps_handler.get_fix_type_string(gps_data['fix_type'])
     
-    # Get the caps from the pad
-    format, width, height = get_caps_from_pad(pad)
+    # # Get the caps from the pad
+    # format, width, height = get_caps_from_pad(pad)
     
-    # Get video frame if needed
-    frame = None
-    if user_data.use_frame and format is not None and width is not None and height is not None:
-        frame = get_numpy_from_buffer(buffer, format, width, height)
+    # # Get video frame if needed
+    # frame = None
+    # if user_data.use_frame and format is not None and width is not None and height is not None:
+    #     frame = get_numpy_from_buffer(buffer, format, width, height)
     
-    # Get the detections from the buffer
-    roi = hailo.get_roi_from_buffer(buffer)
-    detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
+    # # Get the detections from the buffer
+    # roi = hailo.get_roi_from_buffer(buffer)
+    # detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
     
-    # Parse the detections
-    detection_count = 0
-    for detection in detections:
-        label = detection.get_label()
-        bbox = detection.get_bbox()
-        confidence = detection.get_confidence()
+    # # Parse the detections
+    # detection_count = 0
+    # for detection in detections:
+    #     label = detection.get_label()
+    #     bbox = detection.get_bbox()
+    #     confidence = detection.get_confidence()
         
-        if label == "person":
-            # Get track ID
-            track_id = 0
-            track = detection.get_objects_typed(hailo.HAILO_UNIQUE_ID)
-            if len(track) == 1:
-                track_id = track[0].get_id()
+    #     if label == "person":
+    #         # Get track ID
+    #         track_id = 0
+    #         track = detection.get_objects_typed(hailo.HAILO_UNIQUE_ID)
+    #         if len(track) == 1:
+    #             track_id = track[0].get_id()
             
-            detection_info = {
-                'id': track_id,
-                'label': label,
-                'confidence': confidence,
-                'bbox': (bbox.xmin(), bbox.ymin(), bbox.width(), bbox.height())
-            }
+    #         detection_info = {
+    #             'id': track_id,
+    #             'label': label,
+    #             'confidence': confidence,
+    #             'bbox': (bbox.xmin(), bbox.ymin(), bbox.width(), bbox.height())
+    #         }
             
-            # Log detection with GPS data
-            log_entry = user_data.log_detection_with_gps(detection_info)
+    #         # Log detection with GPS data
+    #         log_entry = user_data.log_detection_with_gps(detection_info)
             
-            string_to_print += (
-                f"Detection: ID: {track_id} Label: {label} Confidence: {confidence:.2f}\n"
-                f"  GPS: Lat={gps_data['lat']:.7f}, Lon={gps_data['lon']:.7f}, "
-                f"Alt={gps_data['alt']:.1f}m, Rel Alt={gps_data['relative_alt']:.1f}m\n"
-                f"  Heading={gps_data['heading']:.1f}°, Speed={gps_data['ground_speed']:.1f}m/s, "
-                f"Sats={gps_data['satellites_visible']}, Fix={fix_type_str}\n"
-            )
-            detection_count += 1
+    #         string_to_print += (
+    #             f"Detection: ID: {track_id} Label: {label} Confidence: {confidence:.2f}\n"
+    #             f"  GPS: Lat={gps_data['lat']:.7f}, Lon={gps_data['lon']:.7f}, "
+    #             f"Alt={gps_data['alt']:.1f}m, Rel Alt={gps_data['relative_alt']:.1f}m\n"
+    #             f"  Heading={gps_data['heading']:.1f}°, Speed={gps_data['ground_speed']:.1f}m/s, "
+    #             f"Sats={gps_data['satellites_visible']}, Fix={fix_type_str}\n"
+    #         )
+    #         detection_count += 1
     
-    if user_data.use_frame:
-        # Display detection count
-        cv2.putText(frame, f"Detections: {detection_count}", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    # if user_data.use_frame:
+    #     # Display detection count
+    #     cv2.putText(frame, f"Detections: {detection_count}", (10, 30), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
-        # Display GPS info
-        gps_text = f"GPS: {gps_data['lat']:.6f}, {gps_data['lon']:.6f}"
-        cv2.putText(frame, gps_text, (10, 70), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    #     # Display GPS info
+    #     gps_text = f"GPS: {gps_data['lat']:.6f}, {gps_data['lon']:.6f}"
+    #     cv2.putText(frame, gps_text, (10, 70), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
-        alt_text = f"Alt: {gps_data['relative_alt']:.1f}m | Hdg: {gps_data['heading']:.0f}°"
-        cv2.putText(frame, alt_text, (10, 100), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    #     alt_text = f"Alt: {gps_data['relative_alt']:.1f}m | Hdg: {gps_data['heading']:.0f}°"
+    #     cv2.putText(frame, alt_text, (10, 100), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
-        fix_text = f"Fix: {fix_type_str} | Sats: {gps_data['satellites_visible']}"
-        cv2.putText(frame, fix_text, (10, 130), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    #     fix_text = f"Fix: {fix_type_str} | Sats: {gps_data['satellites_visible']}"
+    #     cv2.putText(frame, fix_text, (10, 130), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
-        # Convert the frame to BGR
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        user_data.set_frame(frame)
+    #     # Convert the frame to BGR
+    #     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    #     user_data.set_frame(frame)
     
-    print(string_to_print)
+    # print(string_to_print)
     return Gst.PadProbeReturn.OK
 
 if __name__ == "__main__":
@@ -278,7 +267,12 @@ if __name__ == "__main__":
     gps_handler = MAVLinkGPSHandler('udp:0.0.0.0:14550')
     gps_handler.wait_for_arm()
 
-    gps_handler.start()
+    #gps_handler.start()
+
+
+    user_data = user_app_callback_class(gps_handler)
+    app = GStreamerDetectionApp(app_callback, user_data)
+    app.run()
     
     # # Start GPS data collection
     # if not gps_handler.start():
@@ -295,3 +289,13 @@ if __name__ == "__main__":
     #     user_data.save_log_to_file('detection_log.txt')
     #     print(f"Saved {len(user_data.detection_log)} detection events to detection_log.txt")
     #     gps_handler.stop()
+
+
+
+
+"""
+Things to consider
+- Do we want to trigger the code on drone arm? Does arm disengage automatically sometimes?
+    - Maybe just once its mission starts?
+
+"""
