@@ -286,9 +286,16 @@ if __name__ == "__main__":
 
 """
 TODOS
+
+- Try plugging in battery to see if that helps us get data other than heartbeat
+- Try connecting to laptop and see if we get data that way
+
+
+- Write to file as we see the images, not at the end
 - Adjust callback to only enqueue frame if detected object in multiple frames? How will this work if multiple objects in screen?
 - Save images of detections with GPS data overlayed? 
     - Math of where pictures are in frame?
+- Look into current working directory for .sh script (log file outputted there)
 - Test with real drone
 
 
