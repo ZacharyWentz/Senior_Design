@@ -29,15 +29,33 @@ def init_mavlink_connection(connection_string):
     master.wait_heartbeat()
     print("Got heartbeat")
 
+# def wait_for_arm():
+#     """Wait until the drone is armed"""
+#     global master
+#     print("Waiting for drone to be armed...")
+#     while not master.motors_armed():
+#         time.sleep(1)
+
+#     print("Drone is armed!")    
+
 def wait_for_arm():
-    """Wait until the drone is armed"""
+    """Wait until the drone is armed by reading HEARTBEAT messages."""
     global master
     print("Waiting for drone to be armed...")
-    while not master.motors_armed():
-        time.sleep(1)
+    armed = False
+    while not armed:
+        heartbeat = master.recv_match(type='HEARTBEAT', blocking=True, timeout=5)
+        if heartbeat is None:
+            # no message received in timeout, try again
+            continue
+        # Check the SAFETY_ARMED flag in base_mode
+        try:
+            armed = (heartbeat.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
+        except Exception:
+            # If msg doesn't have base_mode for some reason, skip it
+            continue
 
-    print("Drone is armed!")    
-
+    print("Drone is armed!")
 
 
 
