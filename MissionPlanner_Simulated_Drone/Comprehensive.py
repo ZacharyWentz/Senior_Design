@@ -324,7 +324,7 @@ if __name__ == "__main__":
 
 
     try:
-        user_data = user_app_callback_class(gps_handler)
+        user_data = user_app_callback_class(processor)
         app = GStreamerDetectionApp(app_callback, user_data)
         app.run()
     finally:
