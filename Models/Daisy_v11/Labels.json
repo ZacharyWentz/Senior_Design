@@ -1,0 +1,7 @@
+{
+    "labels": [
+        "unlabeled",
+        "daisy"
+    ],
+    "detection_threshold": 0.5
+}
