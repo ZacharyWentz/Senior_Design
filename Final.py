@@ -58,7 +58,8 @@ def gps_listener(gps_obj, connection_string="udp:0.0.0.0:14550"):
         master.target_system,
         master.target_component,
         mavutil.mavlink.MAV_DATA_STREAM_POSITION,
-        1, 1
+        1, 
+        1
     )
     
     # Continuously receive GPS messages
@@ -71,7 +72,7 @@ def gps_listener(gps_obj, connection_string="udp:0.0.0.0:14550"):
 
 # Callback class for Hailo object detection pipeline
 class UserAppCallbackWithGPS(app_callback_class):
-    TARGET_CLASS = "tv"  # Object class to detect
+    TARGET_CLASS = "person"  # Object class to detect
     SNAPSHOT_INTERVAL_SEC = 1.0  # Minimum time between snapshots
     TARGET_VIDEO_FPS = 20.0  # Video frame rate
 
@@ -80,7 +81,7 @@ class UserAppCallbackWithGPS(app_callback_class):
         self.frame_count = 0
         self.total_objects_detected = 0
         self.csv_rows = []
-        self.queue = queue.Queue(maxsize=50)
+        self.queue = queue.Queue(maxsize=100)
         self.gps_obj = gps_obj
 
         # Setup storage folders for snapshots and video
@@ -88,12 +89,12 @@ class UserAppCallbackWithGPS(app_callback_class):
         drives = [d for d in usb_root.iterdir() if d.is_dir() and d.name != "System Volume Information"]
         if drives:
             drive_root = drives[0]
-            self.base_dir = drive_root / "WEEDSCOUT_PHOTOS"
+            self.base_dir = drive_root / "WeedScout_Results"
             self.base_dir.mkdir(parents=True, exist_ok=True)
             print(f"USB drive detected: {drive_root}")
         else:
             print("No writable USB drive detected, saving to Desktop")
-            self.base_dir = Path.home() / "Desktop" / "WEEDSCOUT_PHOTOS"
+            self.base_dir = Path.home() / "Desktop" / "WeedScout_Results"
             self.base_dir.mkdir(parents=True, exist_ok=True)
 
         # Create date-specific folder
@@ -108,7 +109,7 @@ class UserAppCallbackWithGPS(app_callback_class):
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # CSV file for logging snapshot info
-        base_csv_name = f"Weedscout_{date_str}"
+        base_csv_name = f"WeedScout_{date_str}"
         csv_file = self.output_dir / f"{base_csv_name}.csv"
         counter = 1
         while csv_file.exists():
