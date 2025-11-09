@@ -220,16 +220,27 @@ def writer_thread(user_data: UserAppCallbackWithGPS):
         lat, lon, alt = item["lat"], item["lon"], item["alt"]
 
         # Initialize video writer
+        # if user_data.video_writer is None:
+        #     h, w = frame_overlay.shape[:2]
+        #     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        #     user_data.video_writer = cv2.VideoWriter(
+        #         str(user_data.output_dir / "video.mp4"),
+        #         fourcc,
+        #         user_data.TARGET_VIDEO_FPS,
+        #         (w, h)
+        #     )
+        #     video_start_time = frame_timestamp
         if user_data.video_writer is None:
             h, w = frame_overlay.shape[:2]
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')  # Change to MJPEG
             user_data.video_writer = cv2.VideoWriter(
-                str(user_data.output_dir / "video.mp4"),
+                str(user_data.output_dir / "video.avi"),  # Change file extension to .avi
                 fourcc,
                 user_data.TARGET_VIDEO_FPS,
                 (w, h)
             )
             video_start_time = frame_timestamp
+
 
         # Write video frames
         target_frame_number = int((frame_timestamp - video_start_time) * user_data.TARGET_VIDEO_FPS)
