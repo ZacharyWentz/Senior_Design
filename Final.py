@@ -121,7 +121,7 @@ class UserAppCallbackWithGPS(app_callback_class):
         with open(self.csv_file, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["Snapshot #", "Timestamp", "Objects Detected", "Confidence (%)",
-                             "Snapshot Filename", "Lat", "Lon", "Alt"])
+                             "Snapshot Filename", "Lat", "Lon", "Alt", "Relative Alt"])
 
         self.video_writer = None
 
@@ -174,9 +174,9 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     # Overlay GPS coordinates or placeholder
-    lat, lon, alt, _, _, _, _, _ = user_data.gps_obj.get()
+    lat, lon, alt, relative_alt, _, _, _, _ = user_data.gps_obj.get()
     if lat is not None:
-        gps_text = f"Lat: {lat:.7f}, Lon: {lon:.7f}, Alt: {alt:.1f}m"
+        gps_text = f"Lat: {lat:.7f}, Lon: {lon:.7f}, Alt: {alt:.1f}m, 'Rel Alt: {relative_alt:.1f}m"
     else:
         gps_text = "GPS: N/A"
     cv2.putText(frame_overlay, gps_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
@@ -192,7 +192,8 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
             "timestamp": time.time(),
             "lat": lat,
             "lon": lon,
-            "alt": alt
+            "alt": alt,
+            "relative_alt": relative_alt
         })
     except queue.Full:
         pass
@@ -217,7 +218,7 @@ def writer_thread(user_data: UserAppCallbackWithGPS):
         detected_count = item["detected_count"]
         max_conf = item["max_conf"]
         frame_timestamp = item["timestamp"]
-        lat, lon, alt = item["lat"], item["lon"], item["alt"]
+        lat, lon, alt, relative_alt = item["lat"], item["lon"], item["alt"], item["relative_alt"]
 
         # Initialize video writer
         # if user_data.video_writer is None:
@@ -271,7 +272,8 @@ def writer_thread(user_data: UserAppCallbackWithGPS):
                 snapshot_file.name,
                 f"{lat:.7f}" if lat else "N/A",
                 f"{lon:.7f}" if lon else "N/A",
-                f"{alt:.1f}" if alt else "N/A"
+                f"{alt:.1f}" if alt else "N/A",
+                f"{relative_alt:.1f}" if relative_alt else "N/A"
             ]
             user_data.csv_rows.append(row)
             try:
