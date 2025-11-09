@@ -299,7 +299,6 @@ if __name__ == "__main__":
     # Initialize detection callback and threads
     user_data = UserAppCallbackWithGPS(gps_obj)
     atexit.register(lambda: cleanup(user_data))
-    threading.Thread(target=preview_thread, daemon=True).start()
     threading.Thread(target=writer_thread, args=(user_data,), daemon=True).start()
 
     # Run the Hailo detection pipeline
