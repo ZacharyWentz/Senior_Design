@@ -243,10 +243,13 @@ def writer_thread(user_data: UserAppCallbackWithGPS):
 
 
         # Write video frames
-        target_frame_number = int((frame_timestamp - video_start_time) * user_data.TARGET_VIDEO_FPS)
-        while last_written_frame_number < target_frame_number:
-            user_data.video_writer.write(cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR))
-            last_written_frame_number += 1
+        # target_frame_number = int((frame_timestamp - video_start_time) * user_data.TARGET_VIDEO_FPS)
+        # while last_written_frame_number < target_frame_number:
+        #     user_data.video_writer.write(cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR))
+        #     last_written_frame_number += 1
+        user_data.video_writer.write(cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR))
+
+
 
         # Save snapshot if interval passed and object detected
         if detected_count > 0 and (frame_timestamp - last_snapshot_time >= user_data.SNAPSHOT_INTERVAL_SEC):
