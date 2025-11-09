@@ -54,5 +54,5 @@ Other Notes:
 - If you want to stop your service for your current session, run this command:
     ```sudo systemctl stop your_service_name```
     - The service will still run when you startup again
-- When you utilize a Hailo pipeline and want to run your script without a display showing live (this is useful if you want to run a script remotely on your Pi or run a script on Pi startup), then go to the pipeline file your script relies on and change your display pipeline to be 'fakesink sync=false'. For example, in the pipeline below, you would delete the display_pipeline line and then replace the part in the red circle with 'fakesink sync=false'.
+- When you utilize a Hailo pipeline and want to run your script without a display showing live (this is useful if you want to run a script remotely on your Pi or run a script on Pi startup), then go to the pipeline file your script relies on and change your display pipeline to be 'fakesink sync=false'. For example, in the pipeline below, you would delete the display_pipeline line and then replace the part in the red circle with 'fakesink sync=true'.
 ![alt text](./Images/Hailo_Pipeline.png)
