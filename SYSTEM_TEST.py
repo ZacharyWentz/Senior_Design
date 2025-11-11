@@ -18,8 +18,8 @@ from gi.repository import Gst
 from pymavlink import mavutil
 
 # GPIO setup
-LED_STARTUP = 23      # GPIO pin for startup LED
-LED_RUNNING = 24      # GPIO pin for running LED
+LED_STARTUP = 23
+LED_RUNNING = 24
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(LED_STARTUP, GPIO.OUT)
@@ -34,7 +34,7 @@ for _ in range(5):
     GPIO.output(LED_RUNNING, GPIO.LOW)
     time.sleep(0.2)
 
-# Class to store the latest GPS data in a thread safe manner
+# Class to store latest GPS data in a thread safe manner
 class LatestGPS:
     def __init__(self):
         self.lock = threading.Lock()
@@ -94,6 +94,10 @@ class UserAppCallbackWithGPS(app_callback_class):
         self.queue = queue.Queue(maxsize=50)
         self.gps_obj = gps_obj
 
+        # Takeoff detection
+        self.has_taken_off = False
+        self.takeoff_threshold = 3.0
+
         # USB or Desktop storage
         usb_root = Path("/media")
         drives = []
@@ -140,12 +144,21 @@ class UserAppCallbackWithGPS(app_callback_class):
 # Shared variables
 preview_frame = None
 preview_running = True
+led_running_active = True
+
+# LED running thread
+def running_led_thread():
+    global led_running_active
+    while led_running_active:
+        GPIO.output(LED_RUNNING, GPIO.HIGH)
+        time.sleep(0.5)
+        GPIO.output(LED_RUNNING, GPIO.LOW)
+        time.sleep(0.5)
 
 # Preview thread
 def preview_thread():
     global preview_frame, preview_running
     while preview_running:
-        GPIO.output(LED_RUNNING, GPIO.HIGH)  # Running LED ON
         if preview_frame is not None:
             cv2.imshow("Preview", cv2.cvtColor(preview_frame, cv2.COLOR_RGB2BGR))
         if cv2.waitKey(1) & 0xFF == 27:
@@ -153,8 +166,6 @@ def preview_thread():
             Gst.main_quit()
             break
         time.sleep(0.01)
-        GPIO.output(LED_RUNNING, GPIO.LOW)   # Running LED OFF
-        time.sleep(0.5)
 
 # App callback
 def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
@@ -223,11 +234,15 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
     except queue.Full:
         pass
 
-    if alt is not None and alt < 2.0:
-        print("Drone landed (alt < 2m), stopping...")
-        global preview_running
-        preview_running = False
-        Gst.main_quit()
+    # Takeoff and landing detection
+    if alt is not None:
+        if not user_data.has_taken_off and alt > user_data.takeoff_threshold:
+            user_data.has_taken_off = True
+        elif user_data.has_taken_off and alt < 2.0:
+            print("Drone landed (alt < 2m), stopping...")
+            global preview_running
+            preview_running = False
+            Gst.main_quit()
 
     return Gst.PadProbeReturn.OK
 
@@ -296,11 +311,15 @@ def writer_thread(user_data: UserAppCallbackWithGPS):
 
 # Cleanup
 def cleanup(user_data):
+    global led_running_active
+    led_running_active = False  # stop LED thread
+
     if user_data.video_writer:
         user_data.video_writer.release()
         print("VideoWriter released")
     cv2.destroyAllWindows()
 
+    # Blink both LEDs for 20 seconds
     end_time = time.time() + 20
     while time.time() < end_time:
         GPIO.output(LED_STARTUP, GPIO.HIGH)
@@ -335,6 +354,7 @@ if __name__ == "__main__":
     atexit.register(lambda: cleanup(user_data))
     threading.Thread(target=preview_thread, daemon=True).start()
     threading.Thread(target=writer_thread, args=(user_data,), daemon=True).start()
+    threading.Thread(target=running_led_thread, daemon=True).start()
 
     app = GStreamerDetectionApp(app_callback, user_data)
     app.run()
