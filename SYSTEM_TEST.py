@@ -61,7 +61,7 @@ class LatestGPS:
             return (self.lat, self.lon, self.alt, self.relative_alt, self.vx, self.vy, self.vz, self.hdg)
 
 # GPS listener thread
-def gps_listener(gps_obj, connection_string="udp:0.0.0.0:14550"):
+def gps_listener(gps_obj, connection_string="/dev/ttyAMA0"):
     master = mavutil.mavlink_connection(connection_string)
     print(f"Connecting to MAVLink at {connection_string}...")
     master.wait_heartbeat()
@@ -82,7 +82,7 @@ def gps_listener(gps_obj, connection_string="udp:0.0.0.0:14550"):
 
 # Callback class
 class UserAppCallbackWithGPS(app_callback_class):
-    TARGET_CLASS = "cell phone"
+    TARGET_CLASS = "Cone"
     SNAPSHOT_INTERVAL_SEC = 1.0
     TARGET_VIDEO_FPS = 20.0
 
@@ -267,9 +267,9 @@ def writer_thread(user_data: UserAppCallbackWithGPS):
 
         if user_data.video_writer is None:
             h, w = frame_overlay.shape[:2]
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             user_data.video_writer = cv2.VideoWriter(
-                str(user_data.output_dir / "video.mp4"),
+                str(user_data.output_dir / "video.avi"),
                 fourcc,
                 user_data.TARGET_VIDEO_FPS,
                 (w, h)
@@ -320,7 +320,7 @@ def cleanup(user_data):
     cv2.destroyAllWindows()
 
     # Blink both LEDs for 20 seconds
-    end_time = time.time() + 20
+    end_time = time.time() + 10
     while time.time() < end_time:
         GPIO.output(LED_STARTUP, GPIO.HIGH)
         GPIO.output(LED_RUNNING, GPIO.HIGH)
@@ -352,7 +352,6 @@ if __name__ == "__main__":
 
     user_data = UserAppCallbackWithGPS(gps_obj)
     atexit.register(lambda: cleanup(user_data))
-    threading.Thread(target=preview_thread, daemon=True).start()
     threading.Thread(target=writer_thread, args=(user_data,), daemon=True).start()
     threading.Thread(target=running_led_thread, daemon=True).start()
 
