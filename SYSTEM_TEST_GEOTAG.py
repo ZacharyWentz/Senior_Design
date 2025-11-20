@@ -22,6 +22,7 @@ from gi.repository import Gst
 from pymavlink import mavutil
 import numpy as np
 
+# GPIO setup for startup and running LEDs
 LED_STARTUP = 23
 LED_RUNNING = 24
 GPIO.setmode(GPIO.BCM)
@@ -36,6 +37,7 @@ for _ in range(5):
     GPIO.output(LED_RUNNING, GPIO.LOW)
     time.sleep(0.2)
 
+# GPS class to store latest position and attitude
 class LatestGPS:
     def __init__(self):
         self.lock = threading.Lock()
@@ -61,28 +63,33 @@ class LatestGPS:
     def get(self):
         with self.lock:
             return self.lat, self.lon, self.alt, self.roll, self.pitch, self.yaw
-#def gps_listener(gps_obj, connection_string="/dev/ttyAMA0", baud=57600):
+
+# Function to listen for GPS data using MAVLink
 def gps_listener(gps_obj, connection_string="/dev/ttyAMA0"):
-    master = mavutil.mavlink_connection(connection_string)
-    print(f"Connecting to MAVLink at {connection_string}...")
-    master.wait_heartbeat()
-    print("GPS listener connected")
+    try:
+        master = mavutil.mavlink_connection(connection_string)
+        print(f"Connecting to MAVLink at {connection_string}...")
+        master.wait_heartbeat()
+        print("GPS listener connected")
 
-    master.mav.request_data_stream_send(
-        master.target_system,
-        master.target_component,
-        mavutil.mavlink.MAV_DATA_STREAM_POSITION,
-        1, 1
-    )
+        master.mav.request_data_stream_send(
+            master.target_system,
+            master.target_component,
+            mavutil.mavlink.MAV_DATA_STREAM_POSITION,
+            1, 1
+        )
 
-    while True:
-        msg = master.recv_match(type=['GLOBAL_POSITION_INT'], blocking=True, timeout=2)
-        if msg:
-            gps_obj.update_position(msg)
-        att_msg = master.recv_match(type=['ATTITUDE'], blocking=False)
-        if att_msg:
-            gps_obj.update_attitude(att_msg)
+        while True:
+            msg = master.recv_match(type=['GLOBAL_POSITION_INT'], blocking=True, timeout=2)
+            if msg:
+                gps_obj.update_position(msg)
+            att_msg = master.recv_match(type=['ATTITUDE'], blocking=False)
+            if att_msg:
+                gps_obj.update_attitude(att_msg)
+    except:
+        print("MAVLink not available. GPS will show N/A.")
 
+# Compute Haversine distance between two GPS points
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371000
     phi1 = math.radians(lat1)
@@ -93,6 +100,7 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
+# Convert pixel coordinates to GPS coordinates on the ground
 def pixel_to_ground(lat, lon, alt, roll, pitch, yaw, x_pixel, y_pixel, W, H, FOV_diag=63):
     x_n = (x_pixel - W/2)/(W/2)
     y_n = (y_pixel - H/2)/(H/2)
@@ -121,6 +129,7 @@ def pixel_to_ground(lat, lon, alt, roll, pitch, yaw, x_pixel, y_pixel, W, H, FOV
     lon_obj = lon + east/(111320*math.cos(math.radians(lat)))
     return lat_obj, lon_obj
 
+# Custom callback class for object detection and GPS tracking
 class UserAppCallbackWithGPS(app_callback_class):
     TARGET_CLASS = "Cone"
     TARGET_VIDEO_FPS = 20.0
@@ -137,8 +146,8 @@ class UserAppCallbackWithGPS(app_callback_class):
         self.redetect_distance = 0.3
         self.flight_started = False
         self.flight_ended = False
-        self.total_objects_detected = 0
 
+        # Create base folder on USB or Desktop
         usb_root = Path("/media")
         drives = []
         for sub in usb_root.iterdir():
@@ -149,19 +158,22 @@ class UserAppCallbackWithGPS(app_callback_class):
         if drives:
             drive_root = drives[0]
             self.base_dir = drive_root / "WEEDSCOUT"
-            self.base_dir.mkdir(parents=True, exist_ok=True)
         else:
             self.base_dir = Path.home() / "Desktop" / "WEEDSCOUT"
-            self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
 
+        # Create folder for current date
         now = datetime.now(pytz.timezone("US/Central"))
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H-%M")
         self.date_folder = self.base_dir / date_str
         self.date_folder.mkdir(parents=True, exist_ok=True)
+
+        # Temporary folder for this run
         self.output_dir = self.date_folder / f"{time_str} temp"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Setup CSV file
         base_csv_name = f"Weedscout_{date_str}"
         csv_file = self.output_dir / f"{base_csv_name}.csv"
         counter = 1
@@ -175,13 +187,14 @@ class UserAppCallbackWithGPS(app_callback_class):
 
         self.video_writer = None
 
+    # Detect takeoff and landing
     def check_takeoff_and_landing(self):
         try:
-            heartbeat = self.mav.recv_match(type='HEARTBEAT', blocking=False)
+            heartbeat = self.mav.recv_match(type='HEARTBEAT', blocking=False) if self.mav else None
             armed = False
             if heartbeat:
                 armed = (heartbeat.base_mode & 128) != 0
-            msg = self.mav.recv_match(type='GLOBAL_POSITION_INT', blocking=False)
+            msg = self.mav.recv_match(type='GLOBAL_POSITION_INT', blocking=False) if self.mav else None
             alt = None
             if msg:
                 alt = msg.relative_alt / 1000.0
@@ -194,10 +207,12 @@ class UserAppCallbackWithGPS(app_callback_class):
             pass
         return False
 
+# Global variables for preview frame and LED status
 preview_frame = None
 preview_running = True
 led_running_active = True
 
+# LED thread to blink running LED
 def running_led_thread():
     global led_running_active
     while led_running_active:
@@ -206,6 +221,7 @@ def running_led_thread():
         GPIO.output(LED_RUNNING, GPIO.LOW)
         time.sleep(0.5)
 
+# Thread to show live preview
 def preview_thread():
     global preview_frame, preview_running
     while preview_running:
@@ -217,7 +233,9 @@ def preview_thread():
             break
         time.sleep(0.01)
 
+# Main app callback for object detection
 def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
+    global preview_frame
     buffer = info.get_buffer()
     if buffer is None:
         return Gst.PadProbeReturn.OK
@@ -237,18 +255,30 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
 
     lat, lon, alt, roll, pitch, yaw = user_data.gps_obj.get()
     frame_overlay = frame.copy()
+
+    # Overlay time, GPS, and object count
+    now_cst = datetime.now(pytz.timezone("US/Central"))
+    gps_text = f"Drone GPS: Lat {lat:.6f}, Lon {lon:.6f}" if lat is not None else "Drone GPS: N/A"
+    line1 = f"Time: {now_cst.strftime('%H:%M:%S')} | Objects detected: {len(user_data.tracked_objects) if lat else 0}"
+    cv2.putText(frame_overlay, line1, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+    cv2.putText(frame_overlay, gps_text, (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+
     roi = hailo.get_roi_from_buffer(buffer)
     detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
 
-    if detections and alt:
-        for det in detections:
-            if det.get_label().lower() != user_data.TARGET_CLASS.lower():
-                continue
-            bbox = det.get_bbox()
-            x_min = int(bbox.xmin()*W)
-            y_min = int(bbox.ymin()*H)
-            x_max = int(bbox.xmax()*W)
-            y_max = int(bbox.ymax()*H)
+    snapshot_needed = False
+
+    for det in detections:
+        if det.get_label().lower() != user_data.TARGET_CLASS.lower():
+            continue
+        bbox = det.get_bbox()
+        x_min = int(bbox.xmin()*W)
+        y_min = int(bbox.ymin()*H)
+        x_max = int(bbox.xmax()*W)
+        y_max = int(bbox.ymax()*H)
+        cv2.rectangle(frame_overlay, (x_min, y_min), (x_max, y_max), (0,255,0), 2)
+
+        if lat is not None and lon is not None and alt is not None:
             x_center = (x_min + x_max)/2
             y_center = (y_min + y_max)/2
             obj_lat, obj_lon = pixel_to_ground(lat, lon, alt, roll, pitch, yaw, x_center, y_center, W, H)
@@ -277,41 +307,31 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
                     'last_seen': time.time()
                 }
 
-    snapshot_needed = False
-    for oid, tracked in list(user_data.tracked_objects.items()):
-        x_min, y_min, x_max, y_max = tracked['bbox']
-        if not tracked['confirmed'] and tracked['frames_seen'] >= user_data.confirmation_frames:
-            tracked['confirmed'] = True
-            snapshot_needed = True
-            now_cst = datetime.now(pytz.timezone("US/Central"))
-            row = [oid, user_data.frame_count, now_cst.strftime("%H:%M:%S"), tracked['lat'], tracked['lon']]
-            try:
-                with open(user_data.csv_file, mode='a', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(row)
-            except:
-                pass
-        if tracked['confirmed']:
-            color = (0,255,0)
-            for other_oid, other_tracked in user_data.tracked_objects.items():
-                if other_oid != oid:
-                    dist = haversine(tracked['lat'], tracked['lon'], other_tracked['lat'], other_tracked['lon'])
-                    if dist < user_data.redetect_distance:
-                        color = (0,0,255)
-                        break
-            cv2.rectangle(frame_overlay, (x_min, y_min), (x_max, y_max), color, 2)
-            text = f"ID# {oid} | Lat: {tracked['lat']:.6f} Lon: {tracked['lon']:.6f}"
-            cv2.putText(frame_overlay, text, (x_min, max(0, y_min-5)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    # Save snapshots and write CSV
+    now_cst = datetime.now(pytz.timezone("US/Central"))
 
-    if snapshot_needed:
-        now_cst = datetime.now(pytz.timezone("US/Central"))
-        snapshot_name = f"frame_{user_data.frame_count}_{now_cst.strftime('%H-%M-%S')}.jpg"
+    if lat is None or lon is None:
+        obj_lat, obj_lon = 0, 0
+        snapshot_name = f"frame_{user_data.frame_count}.jpg"
         snapshot_file = user_data.output_dir / snapshot_name
         cv2.imwrite(str(snapshot_file), cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR),
                     [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        with open(user_data.csv_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([user_data.frame_count, 0, now_cst.strftime("%H:%M:%S"), obj_lat, obj_lon])
+    else:
+        for oid, tracked in user_data.tracked_objects.items():
+            if tracked.get('confirmed', False) and not tracked.get('snapshot_taken', False):
+                obj_lat, obj_lon = tracked['lat'], tracked['lon']
+                snapshot_name = f"ID_{oid}.jpg"
+                snapshot_file = user_data.output_dir / snapshot_name
+                cv2.imwrite(str(snapshot_file), cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR),
+                            [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                tracked['snapshot_taken'] = True
+                with open(user_data.csv_file, mode='a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([oid, user_data.frame_count, now_cst.strftime("%H:%M:%S"), obj_lat, obj_lon])
 
-    global preview_frame
     preview_frame = frame_overlay.copy()
 
     try:
@@ -323,6 +343,9 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
     except queue.Full:
         pass
 
+    return Gst.PadProbeReturn.OK
+
+# Writer thread for video
 def writer_thread(user_data):
     last_written_frame_number = -1
     video_start_time = None
@@ -348,22 +371,40 @@ def writer_thread(user_data):
             user_data.video_writer.write(cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR))
             last_written_frame_number += 1
 
+# Cleanup resources
 def cleanup(user_data):
     global led_running_active
     led_running_active = False
+
     if user_data.video_writer:
         user_data.video_writer.release()
     cv2.destroyAllWindows()
-    end_time = time.time() + 20
+
+    # Blink LEDs for a few seconds at end
+    end_time = time.time() + 10
     while time.time() < end_time:
         GPIO.output(LED_STARTUP, GPIO.HIGH)
-        GPIO.output(LED_RUNNING, GPIO.HIGH)
-        time.sleep(0.5)
-        GPIO.output(LED_STARTUP, GPIO.LOW)
         GPIO.output(LED_RUNNING, GPIO.LOW)
         time.sleep(0.5)
+        GPIO.output(LED_STARTUP, GPIO.LOW)
+        GPIO.output(LED_RUNNING, GPIO.HIGH)
+        time.sleep(0.5)
+
+    # Count total confirmed objects
+    total_objects = len([t for t in user_data.tracked_objects.values() if t['confirmed']])
+
+    # Rename run folder with object count
+    try:
+        new_folder_name = f"{user_data.output_dir.name.split()[0]}_{total_objects}objects"
+        new_folder_path = user_data.output_dir.parent / new_folder_name
+        os.rename(user_data.output_dir, new_folder_path)
+        print(f"Run saved to {new_folder_path}")
+    except Exception as e:
+        print(f"Could not rename folder: {e}")
+
     GPIO.cleanup()
 
+# Main 
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent.parent
     os.environ["HAILO_ENV_FILE"] = str(project_root / ".env")
@@ -373,6 +414,7 @@ if __name__ == "__main__":
 
     user_data = UserAppCallbackWithGPS(gps_obj, None)
     atexit.register(lambda: cleanup(user_data))
+
     threading.Thread(target=preview_thread, daemon=True).start()
     threading.Thread(target=writer_thread, args=(user_data,), daemon=True).start()
     threading.Thread(target=running_led_thread, daemon=True).start()
