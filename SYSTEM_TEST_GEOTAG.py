@@ -22,13 +22,14 @@ from gi.repository import Gst
 from pymavlink import mavutil
 import numpy as np
 
-# GPIO setup for startup and running LEDs
+# GPIO setup
 LED_STARTUP = 23
 LED_RUNNING = 24
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(LED_STARTUP, GPIO.OUT)
 GPIO.setup(LED_RUNNING, GPIO.OUT)
 
+# Startup blink
 for _ in range(5):
     GPIO.output(LED_STARTUP, GPIO.HIGH)
     GPIO.output(LED_RUNNING, GPIO.HIGH)
@@ -37,7 +38,7 @@ for _ in range(5):
     GPIO.output(LED_RUNNING, GPIO.LOW)
     time.sleep(0.2)
 
-# GPS class to store latest position and attitude
+# GPS class
 class LatestGPS:
     def __init__(self):
         self.lock = threading.Lock()
@@ -64,7 +65,7 @@ class LatestGPS:
         with self.lock:
             return self.lat, self.lon, self.alt, self.roll, self.pitch, self.yaw
 
-# Function to listen for GPS data using MAVLink
+# MAVLink GPS listener
 def gps_listener(gps_obj, connection_string="/dev/ttyAMA0"):
     try:
         master = mavutil.mavlink_connection(connection_string)
@@ -89,7 +90,7 @@ def gps_listener(gps_obj, connection_string="/dev/ttyAMA0"):
     except:
         print("MAVLink not available. GPS will show N/A.")
 
-# Compute Haversine distance between two GPS points
+# Haversine distance
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371000
     phi1 = math.radians(lat1)
@@ -100,7 +101,7 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
-# Convert pixel coordinates to GPS coordinates on the ground
+# Convert pixel to ground coordinates
 def pixel_to_ground(lat, lon, alt, roll, pitch, yaw, x_pixel, y_pixel, W, H, FOV_diag=63):
     x_n = (x_pixel - W/2)/(W/2)
     y_n = (y_pixel - H/2)/(H/2)
@@ -129,7 +130,7 @@ def pixel_to_ground(lat, lon, alt, roll, pitch, yaw, x_pixel, y_pixel, W, H, FOV
     lon_obj = lon + east/(111320*math.cos(math.radians(lat)))
     return lat_obj, lon_obj
 
-# Custom callback class for object detection and GPS tracking
+# App callback class
 class UserAppCallbackWithGPS(app_callback_class):
     TARGET_CLASS = "Cone"
     TARGET_VIDEO_FPS = 20.0
@@ -147,7 +148,7 @@ class UserAppCallbackWithGPS(app_callback_class):
         self.flight_started = False
         self.flight_ended = False
 
-        # Create base folder on USB or Desktop
+        # Create base folder
         usb_root = Path("/media")
         drives = []
         for sub in usb_root.iterdir():
@@ -162,18 +163,18 @@ class UserAppCallbackWithGPS(app_callback_class):
             self.base_dir = Path.home() / "Desktop" / "WEEDSCOUT"
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create folder for current date
+        # Create date folder
         now = datetime.now(pytz.timezone("US/Central"))
         date_str = now.strftime("%Y-%m-%d")
-        time_str = now.strftime("%H-%M")
         self.date_folder = self.base_dir / date_str
         self.date_folder.mkdir(parents=True, exist_ok=True)
 
-        # Temporary folder for this run
-        self.output_dir = self.date_folder / f"{time_str} temp"
+        # Create run folder with placeholder object count
+        self.time_str = now.strftime("%H-%M")  # hours and minutes only
+        self.output_dir = self.date_folder / f"{self.time_str}_0objects"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Setup CSV file
+        # CSV setup
         base_csv_name = f"Weedscout_{date_str}"
         csv_file = self.output_dir / f"{base_csv_name}.csv"
         counter = 1
@@ -207,12 +208,12 @@ class UserAppCallbackWithGPS(app_callback_class):
             pass
         return False
 
-# Global variables for preview frame and LED status
+# Global preview and LED flags
 preview_frame = None
 preview_running = True
 led_running_active = True
 
-# LED thread to blink running LED
+# LED running blink
 def running_led_thread():
     global led_running_active
     while led_running_active:
@@ -221,7 +222,7 @@ def running_led_thread():
         GPIO.output(LED_RUNNING, GPIO.LOW)
         time.sleep(0.5)
 
-# Thread to show live preview
+# Preview thread
 def preview_thread():
     global preview_frame, preview_running
     while preview_running:
@@ -233,7 +234,7 @@ def preview_thread():
             break
         time.sleep(0.01)
 
-# Main app callback for object detection
+# App callback
 def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
     global preview_frame
     buffer = info.get_buffer()
@@ -256,7 +257,7 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
     lat, lon, alt, roll, pitch, yaw = user_data.gps_obj.get()
     frame_overlay = frame.copy()
 
-    # Overlay time, GPS, and object count
+    # Overlay text
     now_cst = datetime.now(pytz.timezone("US/Central"))
     gps_text = f"Drone GPS: Lat {lat:.6f}, Lon {lon:.6f}" if lat is not None else "Drone GPS: N/A"
     line1 = f"Time: {now_cst.strftime('%H:%M:%S')} | Objects detected: {len(user_data.tracked_objects) if lat else 0}"
@@ -265,8 +266,6 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
 
     roi = hailo.get_roi_from_buffer(buffer)
     detections = roi.get_objects_typed(hailo.HAILO_DETECTION)
-
-    snapshot_needed = False
 
     for det in detections:
         if det.get_label().lower() != user_data.TARGET_CLASS.lower():
@@ -295,6 +294,9 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
                 tracked['bbox'] = (x_min, y_min, x_max, y_max)
                 tracked['frames_seen'] += 1
                 tracked['last_seen'] = time.time()
+                # Confirm object if seen enough frames
+                if tracked['frames_seen'] >= user_data.confirmation_frames:
+                    tracked['confirmed'] = True
             else:
                 oid = user_data.next_object_id
                 user_data.next_object_id += 1
@@ -304,33 +306,22 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
                     'confirmed': False,
                     'lat': obj_lat,
                     'lon': obj_lon,
-                    'last_seen': time.time()
+                    'last_seen': time.time(),
+                    'snapshot_taken': False
                 }
 
-    # Save snapshots and write CSV
-    now_cst = datetime.now(pytz.timezone("US/Central"))
-
-    if lat is None or lon is None:
-        obj_lat, obj_lon = 0, 0
-        snapshot_name = f"frame_{user_data.frame_count}.jpg"
-        snapshot_file = user_data.output_dir / snapshot_name
-        cv2.imwrite(str(snapshot_file), cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR),
-                    [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-        with open(user_data.csv_file, mode='a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([user_data.frame_count, 0, now_cst.strftime("%H:%M:%S"), obj_lat, obj_lon])
-    else:
-        for oid, tracked in user_data.tracked_objects.items():
-            if tracked.get('confirmed', False) and not tracked.get('snapshot_taken', False):
-                obj_lat, obj_lon = tracked['lat'], tracked['lon']
-                snapshot_name = f"ID_{oid}.jpg"
-                snapshot_file = user_data.output_dir / snapshot_name
-                cv2.imwrite(str(snapshot_file), cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR),
-                            [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                tracked['snapshot_taken'] = True
-                with open(user_data.csv_file, mode='a', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([oid, user_data.frame_count, now_cst.strftime("%H:%M:%S"), obj_lat, obj_lon])
+    # Save snapshots & CSV only for confirmed objects
+    for oid, tracked in user_data.tracked_objects.items():
+        if tracked.get('confirmed', False) and not tracked.get('snapshot_taken', False):
+            snapshot_name = f"ID_{oid}.jpg"
+            snapshot_file = user_data.output_dir / snapshot_name
+            cv2.imwrite(str(snapshot_file), cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR),
+                        [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            tracked['snapshot_taken'] = True
+            with open(user_data.csv_file, mode='a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([oid, user_data.frame_count, now_cst.strftime("%H:%M:%S"),
+                                 tracked['lat'], tracked['lon']])
 
     preview_frame = frame_overlay.copy()
 
@@ -345,7 +336,7 @@ def app_callback(pad, info, user_data: UserAppCallbackWithGPS):
 
     return Gst.PadProbeReturn.OK
 
-# Writer thread for video
+# Writer thread
 def writer_thread(user_data):
     last_written_frame_number = -1
     video_start_time = None
@@ -371,7 +362,7 @@ def writer_thread(user_data):
             user_data.video_writer.write(cv2.cvtColor(frame_overlay, cv2.COLOR_RGB2BGR))
             last_written_frame_number += 1
 
-# Cleanup resources
+# Cleanup
 def cleanup(user_data):
     global led_running_active
     led_running_active = False
@@ -380,7 +371,7 @@ def cleanup(user_data):
         user_data.video_writer.release()
     cv2.destroyAllWindows()
 
-    # Blink LEDs for a few seconds at end
+    # Alternating LED blink at end for 10 seconds
     end_time = time.time() + 10
     while time.time() < end_time:
         GPIO.output(LED_STARTUP, GPIO.HIGH)
@@ -390,13 +381,11 @@ def cleanup(user_data):
         GPIO.output(LED_RUNNING, GPIO.HIGH)
         time.sleep(0.5)
 
-    # Count total confirmed objects
+    # Rename folder with total confirmed objects
     total_objects = len([t for t in user_data.tracked_objects.values() if t['confirmed']])
-
-    # Rename run folder with object count
+    new_folder_name = f"{user_data.time_str}_{total_objects}objects"
+    new_folder_path = user_data.output_dir.parent / new_folder_name
     try:
-        new_folder_name = f"{user_data.output_dir.name.split()[0]}_{total_objects}objects"
-        new_folder_path = user_data.output_dir.parent / new_folder_name
         os.rename(user_data.output_dir, new_folder_path)
         print(f"Run saved to {new_folder_path}")
     except Exception as e:
@@ -404,7 +393,7 @@ def cleanup(user_data):
 
     GPIO.cleanup()
 
-# Main 
+# Main
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent.parent
     os.environ["HAILO_ENV_FILE"] = str(project_root / ".env")
