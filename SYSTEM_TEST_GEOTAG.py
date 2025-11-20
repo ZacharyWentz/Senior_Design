@@ -349,9 +349,9 @@ def writer_thread(user_data):
         frame_timestamp = item["timestamp"]
         if user_data.video_writer is None:
             h, w = frame_overlay.shape[:2]
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             user_data.video_writer = cv2.VideoWriter(
-                str(user_data.output_dir / "video.mp4"),
+                str(user_data.output_dir / "video.avi"),
                 fourcc,
                 user_data.TARGET_VIDEO_FPS,
                 (w, h)
@@ -404,7 +404,7 @@ if __name__ == "__main__":
     user_data = UserAppCallbackWithGPS(gps_obj, None)
     atexit.register(lambda: cleanup(user_data))
 
-    threading.Thread(target=preview_thread, daemon=True).start()
+    # ~ threading.Thread(target=preview_thread, daemon=True).start()
     threading.Thread(target=writer_thread, args=(user_data,), daemon=True).start()
     threading.Thread(target=running_led_thread, daemon=True).start()
 
